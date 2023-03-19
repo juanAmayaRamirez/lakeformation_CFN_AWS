@@ -1,7 +1,7 @@
 ALLOWED_ENVS := dev qa demo prod
 .PHONY: changeset deploy  describe events delete
 
-APP_NAME =cfn-project
+APP_NAME =cfn-lakeformation
 ASSETS_BUCKET=assets-bucket-jenkins-onboarding
 
 # Require ENV
@@ -23,4 +23,25 @@ describe:
 events:
 	aws cloudformation describe-stack-events --stack-name ${ENV}-${APP_NAME}
 delete:
+	aws cloudformation describe-stacks \
+	--stack-name ${ENV}-${APP_NAME} \
+	--query 'Stacks[0].Outputs[?OutputKey==`bronzeBucket`].OutputValue' \
+	--output text \
+	| xargs -I {} aws s3 rm s3://{} --recursive
+	aws cloudformation describe-stacks \
+	--stack-name ${ENV}-${APP_NAME} \
+	--query 'Stacks[0].Outputs[?OutputKey==`silverBucket`].OutputValue' \
+	--output text \
+	| xargs -I {} aws s3 rm s3://{} --recursive
+	aws cloudformation describe-stacks \
+	--stack-name ${ENV}-${APP_NAME} \
+	--query 'Stacks[0].Outputs[?OutputKey==`goldBucket`].OutputValue' \
+	--output text \
+	| xargs -I {} aws s3 rm s3://{} --recursive
 	aws cloudformation delete-stack --stack-name ${ENV}-${APP_NAME}
+batchingest:
+	aws cloudformation describe-stacks \
+	--stack-name ${ENV}-${APP_NAME} \
+	--query 'Stacks[0].Outputs[?OutputKey==`bronzeBucket`].OutputValue' \
+	--output text \
+	| xargs -I {} aws s3 cp local/demoLakeData.csv s3://{}/ingest/batch-person/demoLakeData.csv

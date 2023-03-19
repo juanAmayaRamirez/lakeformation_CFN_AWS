@@ -20,3 +20,200 @@ Parameters:
 #     prod:
 
 Resources:
+
+# S3 locations
+
+  bronzeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Stage}-${AWS::AccountId}-datalake-bronze-${ProjectName}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+  
+  silverBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Stage}-${AWS::AccountId}-datalake-silver-${ProjectName}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  goldBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${Stage}-${AWS::AccountId}-datalake-gold-${ProjectName}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+# Database
+
+  glueIngestDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: ingest
+        LocationUri: !Sub s3://${Stage}-${AWS::AccountId}-datalake-bronze-${ProjectName}/ingest/
+        Description: Ingestion database in the bronze layer
+
+
+  glueRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Stage}-glue-role-${ProjectName}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: glue.amazonaws.com
+          Action: sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+      - PolicyName: !Sub ${Stage}-glue-bucket-policy-${ProjectName}
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:ListBucket
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+              Resource:
+                - !Sub arn:aws:s3:::${Stage}-${AWS::AccountId}-datalake-bronze-${ProjectName}/*
+                - !Sub arn:aws:s3:::${Stage}-${AWS::AccountId}-datalake-bronze-${ProjectName}
+                - !Sub arn:aws:s3:::${Stage}-${AWS::AccountId}-datalake-silver-${ProjectName}/*
+                - !Sub arn:aws:s3:::${Stage}-${AWS::AccountId}-datalake-silver-${ProjectName}
+                - !Sub arn:aws:s3:::${Stage}-${AWS::AccountId}-datalake-gold-${ProjectName}/*
+                - !Sub arn:aws:s3:::${Stage}-${AWS::AccountId}-datalake-gold-${ProjectName}
+      - PolicyName: !Sub ${Stage}-glue-scripts-policy-${ProjectName}
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:ListBucket
+                - s3:GetObject
+              Resource:
+                - !ImportValue 
+                  'Fn::Sub': ${Stage}-jenkins-onboarding-assets-bucket
+                - !Join
+                  - ''
+                  - - !ImportValue 
+                        'Fn::Sub': ${Stage}-jenkins-onboarding-assets-bucket
+                    - "/*"
+      - PolicyName: !Sub ${Stage}-glue-Database-policy-${ProjectName}
+        PolicyDocument: 
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - glue:Update*
+                - glue:Create*
+                - glue:Import*
+              Resource: 
+                - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/${glueIngestDatabase}
+      - PolicyName: !Sub ${Stage}-glue-table-policy-${ProjectName}
+        PolicyDocument: 
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - glue:Update*
+                - glue:Create*
+                - glue:Import*
+              Resource: 
+                - !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/${glueIngestDatabase}
+      - PolicyName: !Sub ${Stage}-glue-logs-policy-${ProjectName}
+        PolicyDocument: 
+          Version: "2012-10-17"
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: "*"
+
+  glueCSVCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: !Sub ${Stage}-ingest-batch-${ProjectName}
+      Role: !GetAtt glueRole.Arn
+      Description: Glue crawler for batch person ingestion data in the bronze layer
+      DatabaseName: !Ref glueIngestDatabase
+      Targets:
+        S3Targets:
+          - Path: !Sub ${Stage}-${AWS::AccountId}-datalake-bronze-${ProjectName}/ingest/batch-person
+            Exclusions: []
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: DELETE_FROM_DATABASE
+      Configuration: |
+        {
+          "Version":1.0,
+          "CrawlerOutput":{
+            "Partitions":{
+              "AddOrUpdateBehavior":"InheritFromTable"
+            },
+            "Tables":{
+              "AddOrUpdateBehavior":"MergeNewColumns"
+            }
+          },
+          "Grouping":{
+            "TableGroupingPolicy":"CombineCompatibleSchemas"
+          }
+        }
+  CrawlerLakeformationPermission:
+    Type: AWS::LakeFormation::PrincipalPermissions
+    Properties: 
+      Catalog: !Ref AWS::AccountId
+      Permissions:
+        - "CREATE_TABLE" 
+        - "ALTER" 
+        - "DROP"
+        - "DESCRIBE"
+      PermissionsWithGrantOption: []
+      Principal: 
+        DataLakePrincipalIdentifier: !GetAtt glueRole.Arn
+      Resource: 
+        Database:
+          CatalogId: !Ref AWS::AccountId
+          Name: !Ref glueIngestDatabase
+
+Outputs:
+  bronzeBucket:
+    Description: datalake bronze bucket
+    Value: !Ref bronzeBucket
+  silverBucket:
+    Description: datalake silver bucket
+    Value: !Ref silverBucket
+  goldBucket:
+    Description: datalake gold bucket
+    Value: !Ref goldBucket
