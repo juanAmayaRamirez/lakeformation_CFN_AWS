@@ -38,6 +38,13 @@ Resources:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
   
+  bronzeResource:
+    Type: AWS::LakeFormation::Resource
+    Properties:
+      ResourceArn: !GetAtt bronzeBucket.Arn
+      RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/lakeformation.amazonaws.com/AWSServiceRoleForLakeFormationDataAccess
+      UseServiceLinkedRole: true
+
   silverBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -52,6 +59,13 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+
+  silverResource:
+    Type: AWS::LakeFormation::Resource
+    Properties:
+      ResourceArn: !GetAtt silverBucket.Arn
+      RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/lakeformation.amazonaws.com/AWSServiceRoleForLakeFormationDataAccess
+      UseServiceLinkedRole: true
 
   goldBucket:
     Type: AWS::S3::Bucket
@@ -68,6 +82,13 @@ Resources:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
 
+  goldResource:
+    Type: AWS::LakeFormation::Resource
+    Properties:
+      ResourceArn: !GetAtt goldBucket.Arn
+      RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/lakeformation.amazonaws.com/AWSServiceRoleForLakeFormationDataAccess
+      UseServiceLinkedRole: true
+
 # Database
 
   glueIngestDatabase:
@@ -79,6 +100,7 @@ Resources:
         LocationUri: !Sub s3://${Stage}-${AWS::AccountId}-datalake-bronze-${ProjectName}/ingest/
         Description: Ingestion database in the bronze layer
 
+# Crawler
 
   glueRole:
     Type: AWS::IAM::Role
@@ -190,6 +212,7 @@ Resources:
             "TableGroupingPolicy":"CombineCompatibleSchemas"
           }
         }
+  
   CrawlerLakeformationPermission:
     Type: AWS::LakeFormation::PrincipalPermissions
     Properties: 
@@ -206,6 +229,8 @@ Resources:
         Database:
           CatalogId: !Ref AWS::AccountId
           Name: !Ref glueIngestDatabase
+
+# 
 
 Outputs:
   bronzeBucket:
